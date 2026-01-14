@@ -18,18 +18,6 @@ interface Store {
   name: string;
 }
 
-// Interface ShipmentItem removida pois não é usada - CORREÇÃO
-// interface ShipmentItem {
-//   id: string;
-//   shipment_id: string;
-//   salad_type_id: string;
-//   quantity: number;
-//   unit_price: number;
-//   salad_name?: string;
-//   salad_emoji?: string;
-//   salad_color?: string;
-// }
-
 interface DailyShipment {
   shipment_id: string;
   shipment_number: string;
@@ -74,8 +62,6 @@ export default function ProductionDashboard() {
   const [userEmail, setUserEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [userDbId, setUserDbId] = useState<string>('');
-  
-  // CORREÇÃO: Adicionado _ para variáveis não usadas
   const [_saladTypes, setSaladTypes] = useState<SaladType[]>([]);
   const [_stores, setStores] = useState<Store[]>([]);
   
@@ -261,14 +247,11 @@ export default function ProductionDashboard() {
           totalRequested += item.quantity;
           totalDelivered += deliveredQuantity;
           
-          // CORREÇÃO: Acessando array corretamente
-          const saladType = item.salad_types?.[0];
-          
           return {
             salad_type_id: item.salad_type_id,
-            salad_name: saladType?.name || 'Salada',
-            salad_emoji: saladType?.emoji || '🥗',
-            salad_color: saladType?.color || '#4CAF50',
+            salad_name: item.salad_types?.[0]?.name || 'Salada',
+            salad_emoji: item.salad_types?.[0]?.emoji || '🥗',
+            salad_color: item.salad_types?.[0]?.color || '#4CAF50',
             requested_quantity: item.quantity,
             delivered_quantity: deliveredQuantity,
             pending_quantity: pendingQuantity
@@ -279,7 +262,6 @@ export default function ProductionDashboard() {
           shipment_id: shipment.id,
           shipment_number: shipment.shipment_number,
           store_id: shipment.store_id,
-          // CORREÇÃO: Acessando array corretamente
           store_name: shipment.stores?.[0]?.name || 'Loja',
           status: shipment.status,
           shipment_date: shipment.shipment_date,
