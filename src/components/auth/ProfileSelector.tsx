@@ -222,7 +222,7 @@ export default function ProfileSelector() {
       }}>
         <p>Selecione seu perfil de acesso</p>
         <p style={{ marginTop: '5px', fontSize: '12px' }}>
-          © Sunset Saladas {new Date().getFullYear()} • Versão 1.8
+          © Sunset Saladas {new Date().getFullYear()} • Versão 2.8
         </p>
       </div>
     </div>

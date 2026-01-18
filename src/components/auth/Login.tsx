@@ -385,10 +385,9 @@ export default function Login() {
             color: '#1976d2',
             textAlign: 'left'
           }}>
-            <strong>👥 Usuário de teste:</strong>
+            <strong>👥 Usuário:</strong>
             <div style={{ marginTop: '5px' }}>
               <div>Email: producao@acaisunset.com</div>
-              <div>Senha: producao123</div>
             </div>
           </div>
         )}
@@ -406,7 +405,6 @@ export default function Login() {
             <strong>👑 Usuários admin:</strong>
             <div style={{ marginTop: '5px' }}>
               <div>Email: admin1@acaisunset.com / admin2@acaisunset.com</div>
-              <div>Senha: admin123</div>
             </div>
           </div>
         )}
@@ -424,7 +422,6 @@ export default function Login() {
             <strong>🏪 Usuários das lojas:</strong>
             <div style={{ marginTop: '5px' }}>
               <div>Email: sunset.nomedaLoja@acaisunset.com</div>
-              <div>Senha: loja123</div>
               <div style={{ marginTop: '8px', fontSize: '12px' }}>
                 Ex: sunset.cohajap@acaisunset.com, sunset.tropical@acaisunset.com, etc.
               </div>
