@@ -1,4 +1,4 @@
-// src/components/production/ProductionDashboard.tsx - VERSÃO COMPLETA E CORRIGIDA
+// src/components/production/ProductionDashboard.tsx - VERSÃO CORRIGIDA COMPLETA
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import Header from '../common/Header';
@@ -11,6 +11,16 @@ interface SaladType {
   emoji: string;
   color: string;
   sale_price: number;
+  requires_sauce: boolean;
+}
+
+interface Sauce {
+  id: string;
+  name: string;
+  emoji: string;
+  description: string;
+  price: number;
+  is_active: boolean;
 }
 
 interface Store {
@@ -33,9 +43,13 @@ interface DailyShipment {
     salad_name: string;
     salad_emoji: string;
     salad_color: string;
+    requires_sauce: boolean;
     requested_quantity: number;
     delivered_quantity: number;
     pending_quantity: number;
+    sauce_id?: string;
+    sauce_name?: string;
+    sauce_emoji?: string;
   }>;
 }
 
@@ -52,11 +66,36 @@ interface SaladSummary {
   salad_name: string;
   salad_emoji: string;
   salad_color: string;
+  requires_sauce: boolean;
   total_requested: number;
   total_delivered: number;
   total_pending: number;
   stores_count: number;
 }
+
+// Função para buscar molhos
+const getSauces = async (): Promise<Sauce[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('sauces')
+      .select('*')
+      .eq('is_active', true)
+      .order('name');
+    
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Erro ao buscar molhos:', error);
+    return [];
+  }
+};
+
+// Função utilitária para lidar com dados relacionais do Supabase
+const getRelatedData = (data: any): any => {
+  if (!data) return null;
+  if (Array.isArray(data)) return data[0] || null;
+  return data;
+};
 
 export default function ProductionDashboard() {
   const [userEmail, setUserEmail] = useState('');
@@ -64,13 +103,14 @@ export default function ProductionDashboard() {
   const [userDbId, setUserDbId] = useState<string>('');
   const [_saladTypes, setSaladTypes] = useState<SaladType[]>([]);
   const [_stores, setStores] = useState<Store[]>([]);
+  const [_sauces, setSauces] = useState<Sauce[]>([]);
   
   // Data selecionada para visualização (data de entrega)
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
+    const year = today.getUTCFullYear();
+    const month = String(today.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(today.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   });
   
@@ -84,9 +124,9 @@ export default function ProductionDashboard() {
   const [selectedShipment, setSelectedShipment] = useState<DailyShipment | null>(null);
   const [batchNumber, setBatchNumber] = useState(() => {
     const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
+    const year = today.getUTCFullYear();
+    const month = String(today.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(today.getUTCDate()).padStart(2, '0');
     return `LOTE-${year}${month}${day}`;
   });
   const [adjustedQuantities, setAdjustedQuantities] = useState<Record<string, number>>({});
@@ -101,12 +141,49 @@ export default function ProductionDashboard() {
     totalPending: 0
   });
 
+  // ========== FUNÇÕES DE FORMATAÇÃO ==========
+  const formatDateFull = (dateString: string) => {
+    try {
+      const [year, month, day] = dateString.split('-').map(Number);
+      
+      const weekdays = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+      const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+      
+      const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      const weekdayIndex = date.getUTCDay();
+      
+      const weekday = weekdays[weekdayIndex];
+      const capitalizedWeekday = weekday.charAt(0).toUpperCase() + weekday.slice(1);
+      
+      return `${capitalizedWeekday}, ${day} de ${months[month - 1]} de ${year}`;
+    } catch (error) {
+      console.error('Erro em formatDateFull:', error);
+      return dateString.split('-').reverse().join('/');
+    }
+  };
+
+  const formatDateShort = (dateString: string) => {
+    try {
+      const [year, month, day] = dateString.split('-').map(Number);
+      return `${day.toString().padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
+    } catch (error) {
+      console.error('Erro em formatDateShort:', error);
+      return dateString;
+    }
+  };
+
+  const capitalizeFirst = (str: string) => {
+    if (!str || str.length === 0) return str;
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  };
+
+  // ========== USE EFFECT ==========
   useEffect(() => {
     initDashboard();
   }, [selectedDate]);
 
   const initDashboard = async () => {
-    console.log('🚀 Iniciando dashboard de produção...');
+    console.log('🚀 Iniciando dashboard de produção COM MOLHOS...');
     
     try {
       // 1. Verificar sessão
@@ -132,7 +209,13 @@ export default function ProductionDashboard() {
       const saladTypesData = await getSaladTypes();
       setSaladTypes(saladTypesData);
       
-      // 4. Buscar lojas
+      // 4. Buscar molhos
+      console.log('🧂 Buscando molhos para produção...');
+      const saucesData = await getSauces();
+      console.log('✅ Molhos recebidos:', saucesData.length);
+      setSauces(saucesData);
+      
+      // 5. Buscar lojas
       const { data: storesData, error: storesError } = await supabase
         .from('stores')
         .select('id, name')
@@ -144,7 +227,7 @@ export default function ProductionDashboard() {
         setStores(storesData || []);
       }
       
-      // 5. Buscar dados para a data selecionada
+      // 6. Buscar dados para a data selecionada
       await fetchDashboardData();
       
     } catch (error) {
@@ -156,7 +239,7 @@ export default function ProductionDashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      console.log('📊 Buscando pedidos para entrega em:', selectedDate);
+      console.log('📊 Buscando pedidos para entrega em:', selectedDate, '(', formatDateShort(selectedDate), ')');
       
       // 1. Buscar shipments para a data de entrega selecionada
       const { data: shipments, error: shipmentsError } = await supabase
@@ -172,7 +255,7 @@ export default function ProductionDashboard() {
           total_items,
           stores!inner(name)
         `)
-        .eq('shipment_date', selectedDate) // Filtrando pela DATA DE ENTREGA
+        .eq('shipment_date', selectedDate)
         .in('status', ['pending', 'shipped'])
         .order('created_at');
       
@@ -209,7 +292,7 @@ export default function ProductionDashboard() {
       
       setShipmentDeliveries(deliveries || []);
       
-      // 3. Processar cada shipment
+      // 3. Processar cada shipment COM INFORMAÇÕES DE MOLHOS
       const shipmentsWithItems: DailyShipment[] = [];
       let totalRequested = 0;
       let totalDelivered = 0;
@@ -218,15 +301,13 @@ export default function ProductionDashboard() {
       for (const shipment of shipments) {
         uniqueStores.add(shipment.store_id);
         
-        // Buscar itens do shipment
+        // BUSCAR ITENS COM JOIN CORRETO - VERSÃO CORRIGIDA
         const { data: items, error: itemsError } = await supabase
           .from('production_items')
           .select(`
-            id,
-            salad_type_id,
-            quantity,
-            unit_price,
-            salad_types!inner(name, emoji, color)
+            *,
+            salad_types!inner(*),
+            sauces!left(*)
           `)
           .eq('shipment_id', shipment.id);
         
@@ -235,7 +316,10 @@ export default function ProductionDashboard() {
           continue;
         }
         
-        // Processar itens
+        // DEBUG: Ver estrutura dos dados
+        console.log('🔍 Dados dos itens recebidos:', items);
+        
+        // PROCESSAR ITENS - VERSÃO CORRIGIDA
         const shipmentItems = (items || []).map(item => {
           const deliveredItem = (deliveries || []).find(
             d => d.shipment_id === shipment.id && d.salad_type_id === item.salad_type_id
@@ -247,22 +331,41 @@ export default function ProductionDashboard() {
           totalRequested += item.quantity;
           totalDelivered += deliveredQuantity;
           
+          // CORREÇÃO: Usar função utilitária para dados relacionais
+          const saladType = getRelatedData(item.salad_types);
+          const sauce = getRelatedData(item.sauces);
+          
+          console.log('📦 Item processado:', {
+            saladType,
+            sauce,
+            sauceId: item.sauce_id,
+            hasSaladType: !!saladType,
+            hasSauce: !!sauce
+          });
+          
           return {
             salad_type_id: item.salad_type_id,
-            salad_name: item.salad_types?.[0]?.name || 'Salada',
-            salad_emoji: item.salad_types?.[0]?.emoji || '🥗',
-            salad_color: item.salad_types?.[0]?.color || '#4CAF50',
+            salad_name: saladType?.name || 'Salada',
+            salad_emoji: saladType?.emoji || '🥗',
+            salad_color: saladType?.color || '#4CAF50',
+            requires_sauce: saladType?.requires_sauce || false,
             requested_quantity: item.quantity,
             delivered_quantity: deliveredQuantity,
-            pending_quantity: pendingQuantity
+            pending_quantity: pendingQuantity,
+            sauce_id: item.sauce_id || undefined,
+            sauce_name: sauce?.name,    // ← CORRIGIDO
+            sauce_emoji: sauce?.emoji   // ← CORRIGIDO
           };
         });
+        
+        // CORREÇÃO: Acessar nome da loja corretamente
+        const storeData = getRelatedData(shipment.stores);
         
         shipmentsWithItems.push({
           shipment_id: shipment.id,
           shipment_number: shipment.shipment_number,
           store_id: shipment.store_id,
-          store_name: shipment.stores?.[0]?.name || 'Loja',
+          store_name: storeData?.name || 'Loja', // ← CORRIGIDO
           status: shipment.status,
           shipment_date: shipment.shipment_date,
           production_date: shipment.production_date,
@@ -311,6 +414,7 @@ export default function ProductionDashboard() {
             salad_name: item.salad_name,
             salad_emoji: item.salad_emoji,
             salad_color: item.salad_color,
+            requires_sauce: item.requires_sauce,
             total_requested: 0,
             total_delivered: 0,
             total_pending: 0,
@@ -343,14 +447,12 @@ export default function ProductionDashboard() {
   const handleSendShipment = (shipment: DailyShipment) => {
     setSelectedShipment(shipment);
     
-    // Gerar número de lote baseado na data atual
     const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
+    const year = today.getUTCFullYear();
+    const month = String(today.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(today.getUTCDate()).padStart(2, '0');
     setBatchNumber(`LOTE-${year}${month}${day}`);
     
-    // Inicializar quantidades ajustadas com as pendentes
     const initialQuantities: Record<string, number> = {};
     shipment.items.forEach(item => {
       initialQuantities[item.salad_type_id] = item.pending_quantity;
@@ -384,10 +486,8 @@ export default function ProductionDashboard() {
     try {
       setSending(true);
       
-      // Para cada item, registrar a entrega com batch_number
       for (const [saladTypeId, quantity] of Object.entries(quantities)) {
         if (quantity > 0) {
-          // Buscar quantidade solicitada
           const { data: itemData, error: itemError } = await supabase
             .from('production_items')
             .select('quantity')
@@ -402,7 +502,6 @@ export default function ProductionDashboard() {
           
           const requestedQuantity = itemData?.quantity || 0;
           
-          // Inserir/atualizar no shipment_deliveries
           const { error: deliveryError } = await supabase
             .from('shipment_deliveries')
             .upsert({
@@ -424,7 +523,6 @@ export default function ProductionDashboard() {
         }
       }
       
-      // Verificar se todas as quantidades foram entregues
       const { data: remainingItems, error: remainingError } = await supabase
         .from('production_items')
         .select(`
@@ -443,7 +541,6 @@ export default function ProductionDashboard() {
         return delivered >= item.quantity;
       }) || false;
       
-      // Atualizar status do shipment
       const updateData: any = {
         status: allDelivered ? 'shipped' : 'pending',
         updated_at: new Date().toISOString()
@@ -465,7 +562,6 @@ export default function ProductionDashboard() {
       
       alert(`✅ Pedido marcado como ${allDelivered ? 'enviado' : 'parcialmente enviado'}!`);
       
-      // Atualizar dados
       setShowSendModal(false);
       setSelectedShipment(null);
       setAdjustedQuantities({});
@@ -485,7 +581,7 @@ export default function ProductionDashboard() {
       return;
     }
 
-    if (!confirm(`Deseja marcar TODOS os ${dailyShipments.length} pedidos para entrega em ${new Date(selectedDate).toLocaleDateString('pt-BR')} como enviados?\n\nLote: ${batchNumber}\nEsta ação não pode ser desfeita.`)) {
+    if (!confirm(`Deseja marcar TODOS os ${dailyShipments.length} pedidos para entrega em ${formatDateShort(selectedDate)} como enviados?\n\nLote: ${batchNumber}\nEsta ação não pode ser desfeita.`)) {
       return;
     }
 
@@ -495,7 +591,6 @@ export default function ProductionDashboard() {
       for (const shipment of dailyShipments) {
         if (shipment.status === 'shipped') continue;
         
-        // Para cada item do shipment, registrar entrega completa
         for (const item of shipment.items) {
           if (item.pending_quantity > 0) {
             const { error: deliveryError } = await supabase
@@ -504,7 +599,7 @@ export default function ProductionDashboard() {
                 shipment_id: shipment.shipment_id,
                 salad_type_id: item.salad_type_id,
                 requested_quantity: item.requested_quantity,
-                delivered_quantity: item.requested_quantity, // Envia tudo
+                delivered_quantity: item.requested_quantity,
                 batch_number: batchNumber,
                 delivered_by: userDbId,
                 delivered_at: new Date().toISOString()
@@ -518,7 +613,6 @@ export default function ProductionDashboard() {
           }
         }
         
-        // Atualizar status do shipment
         const { error: updateError } = await supabase
           .from('production_shipments')
           .update({
@@ -533,9 +627,8 @@ export default function ProductionDashboard() {
         }
       }
       
-      alert(`✅ ${dailyShipments.length} pedidos marcados como enviados!\nLote: ${batchNumber}\nData de entrega: ${new Date(selectedDate).toLocaleDateString('pt-BR')}`);
+      alert(`✅ ${dailyShipments.length} pedidos marcados como enviados!\nLote: ${batchNumber}\nData de entrega: ${formatDateShort(selectedDate)}`);
       
-      // Atualizar dados
       await fetchDashboardData();
       
     } catch (error: any) {
@@ -548,9 +641,9 @@ export default function ProductionDashboard() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'shipped': return '#4CAF50'; // Verde
-      case 'pending': return '#FF9800'; // Laranja
-      default: return '#9E9E9E'; // Cinza
+      case 'shipped': return '#4CAF50';
+      case 'pending': return '#FF9800';
+      default: return '#9E9E9E';
     }
   };
 
@@ -601,6 +694,8 @@ export default function ProductionDashboard() {
       </div>
     );
   }
+
+  const formattedFullDate = capitalizeFirst(formatDateFull(selectedDate));
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8f9fa' }}>
@@ -653,7 +748,7 @@ export default function ProductionDashboard() {
                 }}
               />
               <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                Mostrando pedidos para: {new Date(selectedDate).toLocaleDateString('pt-BR')}
+                Mostrando pedidos para: {formatDateShort(selectedDate)}
               </div>
             </div>
             
@@ -696,12 +791,7 @@ export default function ProductionDashboard() {
             alignItems: 'center',
             gap: '10px'
           }}>
-            📊 Produção para {new Date(selectedDate).toLocaleDateString('pt-BR', { 
-              weekday: 'long', 
-              day: 'numeric', 
-              month: 'long',
-              year: 'numeric' 
-            })}
+            📊 Produção para {formattedFullDate}
           </h2>
           
           <div style={{
@@ -771,6 +861,24 @@ export default function ProductionDashboard() {
                 {stats.totalShipments}
               </div>
             </div>
+
+            {/* Estatística de molhos - AGORA FUNCIONANDO */}
+            <div style={{
+              padding: '20px',
+              backgroundColor: '#F3E5F5',
+              borderRadius: '12px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '14px', color: '#7B1FA2', marginBottom: '8px' }}>
+                Saladas com Molho
+              </div>
+              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#7B1FA2' }}>
+                {saladSummaries.filter(s => s.requires_sauce).length}
+              </div>
+              <div style={{ fontSize: '12px', color: '#666' }}>
+                tipos de {saladSummaries.length}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -792,7 +900,7 @@ export default function ProductionDashboard() {
               alignItems: 'center',
               gap: '10px'
             }}>
-              🥗 Montante de Saladas para entrega em {new Date(selectedDate).toLocaleDateString('pt-BR')}
+              🥗 Montante de Saladas para {formattedFullDate}
             </h2>
             
             <div style={{
@@ -814,7 +922,20 @@ export default function ProductionDashboard() {
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 'bold', fontSize: '18px' }}>{salad.salad_name}</div>
                       <div style={{ fontSize: '14px', color: '#666' }}>
-                        {salad.stores_count} loja{salad.stores_count !== 1 ? 's' : ''} solicitou{salad.stores_count !== 1 ? 'ram' : ''}
+                      {salad.stores_count} loja{salad.stores_count !== 1 ? 's' : ''} {salad.stores_count !== 1 ? 'solicitaram' : 'solicitou'}
+                        {salad.requires_sauce && (
+                          <span style={{ 
+                            marginLeft: '10px',
+                            padding: '2px 8px',
+                            backgroundColor: '#E3F2FD',
+                            color: '#1976D2',
+                            borderRadius: '10px',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}>
+                            🧂 Com molho
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -988,7 +1109,7 @@ export default function ProductionDashboard() {
               alignItems: 'center',
               gap: '10px'
             }}>
-              🏪 Pedidos para entrega em {new Date(selectedDate).toLocaleDateString('pt-BR')}
+              🏪 Pedidos para {formattedFullDate}
               ({dailyShipments.length} pedido{dailyShipments.length !== 1 ? 's' : ''})
             </h2>
             
@@ -1010,7 +1131,7 @@ export default function ProductionDashboard() {
             <div style={{ textAlign: 'center', padding: '60px 40px', color: '#666' }}>
               <div style={{ fontSize: '48px', marginBottom: '20px' }}>📭</div>
               <h3 style={{ margin: '0 0 15px 0', fontSize: '20px', color: '#333' }}>
-                Nenhum pedido para entrega em {new Date(selectedDate).toLocaleDateString('pt-BR')}
+                Nenhum pedido para {formattedFullDate}
               </h3>
               <p style={{ margin: 0, fontSize: '16px' }}>
                 Não há pedidos programados para entrega nesta data.
@@ -1047,7 +1168,7 @@ export default function ProductionDashboard() {
                             fontSize: '20px',
                             color: isPartiallyShipped ? '#FF9800' : isFullyShipped ? '#2E7D32' : '#333'
                           }}>
-                            {shipment.store_name}
+                            {shipment.store_name} {/* AGORA MOSTRA O NOME DA LOJA */}
                           </div>
                           <div style={{
                             padding: '6px 14px',
@@ -1063,15 +1184,11 @@ export default function ProductionDashboard() {
                         
                         <div style={{ fontSize: '14px', color: '#666', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
                           <span>📋 {shipment.shipment_number}</span>
-                          
-                          <span>📅 Entrega para: {new Date(shipment.shipment_date).toLocaleDateString('pt-BR')}</span>
-                          
+                          <span>📅 Entrega para: {formatDateShort(shipment.shipment_date)}</span>
                           <span>📦 {shipment.total_items} unidade{shipment.total_items !== 1 ? 's' : ''}</span>
-                          
-                          <span>📝 Pedido feito: {new Date(shipment.created_at).toLocaleDateString('pt-BR')}</span>
-                          
+                          <span>📝 Pedido feito: {formatDateShort(shipment.created_at)}</span>
                           {isFullyShipped && shipment.production_date && (
-                            <span>✅ Enviado em: {new Date(shipment.production_date).toLocaleDateString('pt-BR')}</span>
+                            <span>✅ Enviado em: {formatDateShort(shipment.production_date)}</span>
                           )}
                         </div>
                       </div>
@@ -1105,7 +1222,7 @@ export default function ProductionDashboard() {
                       )}
                     </div>
                     
-                    {/* Itens do pedido */}
+                    {/* Itens do pedido COM INFORMAÇÕES DE MOLHOS CORRETAS */}
                     <div style={{ 
                       display: 'grid',
                       gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
@@ -1127,7 +1244,32 @@ export default function ProductionDashboard() {
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
                               <span style={{ fontSize: '20px' }}>{item.salad_emoji}</span>
-                              <div style={{ fontWeight: 'bold', flex: 1 }}>{item.salad_name}</div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 'bold' }}>{item.salad_name}</div>
+                                
+                                {/* EXIBIÇÃO DO MOLHO - AGORA FUNCIONANDO */}
+                                {item.requires_sauce ? (
+                                  item.sauce_name ? (
+                                    <div style={{ fontSize: '13px', color: '#666', marginTop: '2px', 
+                                      display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                      <span>{item.sauce_emoji || '🧂'}</span>
+                                      <strong>{item.sauce_name}</strong>
+                                    </div>
+                                  ) : (
+                                    <div style={{ fontSize: '13px', color: '#f44336', marginTop: '2px',
+                                      backgroundColor: '#ffebee', padding: '3px 8px', borderRadius: '4px',
+                                      display: 'inline-block' }}>
+                                      ⚠️ Molho não especificado
+                                    </div>
+                                  )
+                                ) : (
+                                  <div style={{ fontSize: '13px', color: '#4CAF50', marginTop: '2px',
+                                    backgroundColor: '#e8f5e9', padding: '3px 8px', borderRadius: '4px',
+                                    display: 'inline-block' }}>
+                                    ✅ Sem molho necessário
+                                  </div>
+                                )}
+                              </div>
                             </div>
                             
                             <div style={{ 
@@ -1232,7 +1374,7 @@ export default function ProductionDashboard() {
                   Pedido: {selectedShipment.shipment_number}
                 </div>
                 <div style={{ color: '#666', fontSize: '14px' }}>
-                  Entrega para: {new Date(selectedShipment.shipment_date).toLocaleDateString('pt-BR')}
+                  Entrega para: {formatDateShort(selectedShipment.shipment_date)}
                 </div>
               </div>
 
@@ -1277,7 +1419,26 @@ export default function ProductionDashboard() {
                           <span style={{ fontSize: '20px' }}>{item.salad_emoji}</span>
                           <div>
                             <div style={{ fontWeight: 'bold' }}>{item.salad_name}</div>
-                            <div style={{ fontSize: '14px', color: '#666' }}>
+                            
+                            {/* INFORMAÇÕES DO MOLHO NO MODAL - AGORA FUNCIONANDO */}
+                            {item.requires_sauce ? (
+                              item.sauce_name ? (
+                                <div style={{ fontSize: '13px', color: '#666', marginTop: '2px' }}>
+                                  <span style={{ marginRight: '5px' }}>{item.sauce_emoji || '🧂'}</span>
+                                  <strong>{item.sauce_name}</strong>
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: '13px', color: '#f44336', marginTop: '2px' }}>
+                                  ⚠️ Molho não especificado
+                                </div>
+                              )
+                            ) : (
+                              <div style={{ fontSize: '13px', color: '#4CAF50', marginTop: '2px' }}>
+                                ✅ Sem molho necessário
+                              </div>
+                            )}
+                            
+                            <div style={{ fontSize: '14px', color: '#666', marginTop: '5px' }}>
                               Pendente: {item.pending_quantity} un.
                             </div>
                           </div>
@@ -1388,7 +1549,7 @@ export default function ProductionDashboard() {
                     Entrega para:
                   </div>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#FF9800' }}>
-                    {new Date(selectedShipment.shipment_date).toLocaleDateString('pt-BR')}
+                    {formatDateShort(selectedShipment.shipment_date)}
                   </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
